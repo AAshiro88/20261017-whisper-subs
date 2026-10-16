@@ -65,10 +65,16 @@ run_file.bat "D:\影片\教學.mp4" --format srt,vtt,txt
 | `language` | `zh` | 語言代碼。`zh` 繁中、`ja` 日本語、`en` 英文；空字串為自動判斷 |
 | `beam_size` | `5` | 解碼品質，數字越大越準也越慢 |
 | `vad_filter` | `true` | 語音活動偵測，自動跳過靜音段，長影片速度提升明顯 |
-| `initial_prompt` | 台灣華語提示 | 用來誘導模型輸出繁體中文與標點 |
+| `normalize_audio` | `true` | **音量過低時的關鍵**：用 ffmpeg 量測平均音量後自動增益，見下方「音量過低」 |
+| `max_gain_db` | `25.0` | 音量正規化的最大增益（dB） |
+| `hotwords` | `[]` | 專有名詞提示，填 `["LABVIEW", "YOLOv4"]` 可大幅改善術語辨識 |
+| `initial_prompt` | `繁體中文。` | 用來誘導模型輸出繁體中文；**不要寫太長**，長提示詞在音訊模糊時會被整句複述 |
+| `condition_on_previous_text` | `false` | 關閉可避免模型陷入「一直重複同一句」的迴圈 |
+| `no_speech_threshold` | `0.6` | 提高此值讓模型寧可少輸出，也不要再編造無聲音段的內容 |
+| `drop_repeated_segments` | `true` | 丟棄連續完全相同的字幕（幻覺的最後一道防線） |
 | `refine_long_subtitles` | `true` | 依字詞時間戳把過長字幕切成好閱讀的短句 |
 | `max_subtitle_chars` | `20` | 單則字幕字數上限（英文請調大到 60 左右） |
-| `max_subtitle_seconds` | `6.0` | 單則字幕時間上限 |
+| `max_subtitle_seconds` | `8.0` | 單則字幕時間上限 |
 | `output_formats` | `["srt"]` | 可加 `vtt`、`txt` |
 | `opencc_config` | `s2twp` | 簡轉繁並套用台灣用語；想保留原文可設 `traditional_converter` 為 `none` |
 | `cookies_from_browser` | 空字串 | Bilibili 高畫質或需登入的內容可填 `edge` 或 `chrome` |
@@ -88,9 +94,39 @@ run_file.bat 影片.mp4 --output-dir D:\字幕
 :: 保留下載的音檔（不自動刪除）
 run_url.bat https://www.youtube.com/watch?v=xxxx
 
+:: 只轉錄前 5 分鐘（先確認音訊品質，推薦用這個試跑）
+run_url.bat 影片網址 --clip 0,300
+
+:: 提示專有名詞，術語辨識會明顯變準
+run_url.bat 影片網址 --hotwords LABVIEW,YOLOv4,物件偵測
+
 :: 完全繞過 bat，直接呼叫
 "C:\Users\ayore\.conda\envs\whisper-subs\python.exe" transcribe.py 影片.mp4 --format srt
 ```
+
+## 音量過低怎麼辦（重要）
+
+**音量過低是產生「鬼話字幕」最主要的原因**：模型聽不到聲音時會自行編造文字，並且因為開著前後文關聯而一直重複同一句。
+
+本工具會在轉錄前先用 ffmpeg 量測音量，必要時自動正規化：
+
+```
+[音量] 平均 -51.6 dB / 峰值 -9.8 dB -> 正規化後 -27.5 dB（增益 +25.0 dB）
+```
+
+判斷基準：
+
+| 平均音量 | 意義 |
+|---|---|
+| -20 dB 以上 | 正常，不會做正規化 |
+| -30 ~ -20 dB | 偏小，仍可正常辨識 |
+| -45 ~ -30 dB | 明顯過小，會自動放大，辨識率下降 |
+| 低於 -45 dB | 極小聲，放大後仍可能有錯字，建議換音量較大的原始檔 |
+
+實測案例：38 分鐘的教學影片原始平均音量 **-51.6 dB**（只有一般語音的約 3% 音量）。
+未做音量處理時產出 653 段重複的無意義文字；開啟音量正規化後同一支影片產出 127 段可讀字幕，完整轉錄僅需 25 秒。
+
+若你的影片本身就是錄音音量太小，**最佳解仍是提高原始音量**，因為放大無法還原錄音時就已經遺失的細節。
 
 ## 本機實測數據
 
@@ -105,8 +141,12 @@ run_url.bat https://www.youtube.com/watch?v=xxxx
 注意：短音檔的倍速會被模型載入與暖機時間拉低，長影片（數十分鐘以上）的實際倍速通常更高。
 執行前建議關閉遊戲等佔用顯卡的程式，8GB 顯卡在 `large-v3` 下已接近上限。
 
+另一組實測：38 分鐘 YouTube 教學影片（原始平均音量 -51.6 dB，需音量正規化），
+`large-v3` 完整轉錄耗時 24.6 秒（約 93 倍速），產出 127 段字幕。
+
 ## 已知限制
 
+- **極小音量**：見上方「音量過低怎麼辦」。原始音量低於 -45 dB 時，即使自動放大仍會有錯字，只能換來源。
 - **YouTube 反爬蟲**：YouTube 會調整驗證機制，偶爾會出現下載失敗。程式已自動啟用 `node` 作為 JavaScript 執行環境；若仍失敗，可更新 `yt-dlp`（`pip install -U yt-dlp`）或改用 Bilibili。
 - **只有 ffmpeg、沒有 ffprobe**：`imageio-ffmpeg` 只附帶 `ffmpeg.exe`。本工具只下載純音軌（`bestaudio`），正常情況不需要 ffprobe；若某些來源需要合併音視訊才會失敗。
 - **繁簡與台灣用語轉換**：模型輸出多為簡體，`s2twp` 會轉成繁體並套用台灣慣用詞，但偶爾會有不合語境的替換，正式使用前建議抽查。

@@ -10,12 +10,27 @@
     "min_silence_duration_ms": 500,
     "speech_pad_ms": 200
   },
-  "initial_prompt": "以下是台灣華語的對話內容，請使用繁體中文與台灣慣用詞，並加上標點符號。",
-  "condition_on_previous_text": true,
+  "initial_prompt": "繁體中文。",
+  "condition_on_previous_text": false,
+  "no_speech_threshold": 0.6,
+  "log_prob_threshold": -1.0,
+  "compression_ratio_threshold": 2.4,
+  "temperature": [
+    0.0,
+    0.2,
+    0.4,
+    0.6,
+    0.8,
+    1.0
+  ],
+  "normalize_audio": true,
+  "max_gain_db": 25.0,
+  "hotwords": [],
   "refine_long_subtitles": true,
   "max_subtitle_chars": 20,
-  "max_subtitle_seconds": 6.0,
+  "max_subtitle_seconds": 8.0,
   "min_break_chars": 8,
+  "drop_repeated_segments": true,
   "output_formats": [
     "srt"
   ],

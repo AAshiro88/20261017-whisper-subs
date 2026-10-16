@@ -70,8 +70,15 @@ DEFAULT_CONFIG: dict = {
     "beam_size": 5,
     "vad_filter": True,
     "vad_parameters": {"min_silence_duration_ms": 500, "speech_pad_ms": 200},
-    "initial_prompt": "以下是台灣華語的對話內容，請使用繁體中文與台灣慣用詞，並加上標點符號。",
-    "condition_on_previous_text": True,
+    # 提示詞必須短，長提示詞在音訊模糊時會被模型整句複述成字幕
+    "initial_prompt": "繁體中文。",
+    "condition_on_previous_text": False,
+    "no_speech_threshold": 0.6,
+    "log_prob_threshold": -1.0,
+    "compression_ratio_threshold": 2.4,
+    "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+    "normalize_audio": True,
+    "drop_repeated_segments": True,
     "refine_long_subtitles": True,
     "max_subtitle_chars": 20,
     "max_subtitle_seconds": 6.0,
@@ -260,19 +267,14 @@ def validate_url(raw_url: str) -> str:
     return candidate
 
 
-def download_audio(url: str, config: dict) -> Path:
-    """用 yt-dlp Python API 下載最佳音軌到 input\\，回傳音檔路徑。"""
+def download_audio(url: str, config: dict) -> tuple[Path, str]:
+    """用 yt-dlp Python API 下載最佳音軌到 input\\，回傳 (音檔路徑, 影片標題)。"""
     try:
         import yt_dlp
     except ImportError:
         raise RuntimeError("未安裝 yt-dlp，無法下載網址內容") from None
 
-    try:
-        import imageio_ffmpeg
-        ffmpeg_location: str | None = imageio_ffmpeg.get_ffmpeg_exe()
-    except Exception as error:  # noqa: BLE001 - 只影響選用功能，改由 yt-dlp 自行處理
-        warn(f"取得隨附 ffmpeg 失敗（{error}），改由系統 PATH 尋找")
-        ffmpeg_location = None
+    ffmpeg_location = get_ffmpeg_exe()
 
     INPUT_DIR.mkdir(parents=True, exist_ok=True)
     options: dict = {
@@ -315,7 +317,105 @@ def download_audio(url: str, config: dict) -> Path:
     audio_path = candidates[-1]
     if not is_inside(INPUT_DIR, audio_path):
         raise RuntimeError("下載檔案位置異常，已中止")
-    return audio_path
+    return audio_path, str(info.get("title") or "")
+
+
+# ---------------------------------------------------------------------------
+# 音量：過小的音訊會讓 Whisper 產生幻覺，必須先正規化
+# ---------------------------------------------------------------------------
+def get_ffmpeg_exe() -> str | None:
+    """取得隨專案附帶的 ffmpeg 路徑；找不到就回傳 None。"""
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception as error:  # noqa: BLE001 - 缺少 ffmpeg 只影響音量處理
+        warn(f"取得隨附 ffmpeg 失敗（{error}），音量正規化將略過")
+        return None
+
+
+def run_ffmpeg(arguments: list[str]) -> None:
+    """以參數陣列呼叫 ffmpeg，不經過 shell。"""
+    completed = subprocess.run(
+        arguments, capture_output=True, text=True, encoding="utf-8", errors="replace"
+    )
+    if completed.returncode != 0:
+        tail = (completed.stderr or "").strip().splitlines()[-3:]
+        raise RuntimeError("ffmpeg 失敗：" + " / ".join(tail))
+
+
+def measure_loudness(audio_path: Path, ffmpeg: str) -> tuple[float, float] | None:
+    """用 volumedetect 量測平均與最大音量（dB）。"""
+    try:
+        completed = subprocess.run(
+            [ffmpeg, "-hide_banner", "-nostats", "-i", str(audio_path),
+             "-af", "volumedetect", "-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+    except OSError:
+        return None
+
+    mean = maximum = None
+    for line in (completed.stderr or "").splitlines():
+        if "mean_volume:" in line:
+            mean = _parse_decibel(line)
+        elif "max_volume:" in line:
+            maximum = _parse_decibel(line)
+    if mean is None:
+        return None
+    return mean, maximum if maximum is not None else mean
+
+
+def _parse_decibel(line: str) -> float | None:
+    for token in line.replace(":", " ").split():
+        try:
+            value = float(token)
+        except ValueError:
+            continue
+        return value
+    return None
+
+
+def normalize_audio(audio_path: Path, ffmpeg: str, config_gain_limit: float = 25.0) -> Path:
+    """把過小的音量拉回語音可辨識範圍，輸出 16kHz 單聲道 WAV。
+
+    先依實測音量計算增益（受峰值限制避免爆音），再做 loudnorm 動態修正。
+    """
+    INPUT_DIR.mkdir(parents=True, exist_ok=True)
+    target = INPUT_DIR / f"{audio_path.stem}_norm.wav"
+    before = measure_loudness(audio_path, ffmpeg)
+    if before and before[0] > -30.0:
+        log(f"[音量] 平均 {before[0]:.1f} dB 屬正常範圍，略過正規化")
+        return audio_path
+
+    mean_volume, peak_volume = before if before else (-40.0, -10.0)
+    # 以實測平均音量計算增益，讓語音回到可辨識範圍；峰值交給 alimiter 處理，避免硬削波失真
+    gain_limit = float(config_gain_limit)
+    gain = max(min(-18.0 - mean_volume, gain_limit), 1.0)
+
+    run_ffmpeg([
+        ffmpeg, "-y", "-hide_banner", "-nostats",
+        "-i", str(audio_path),
+        "-vn", "-ac", "1", "-ar", "16000",
+        "-af", f"volume={gain:.1f}dB,alimiter=limit=0.891:attack=5:release=50",
+        "-c:a", "pcm_s16le",
+        str(target),
+    ])
+    after = measure_loudness(target, ffmpeg)
+    if after:
+        log(
+            f"[音量] 平均 {before[0]:.1f} dB / 峰值 {before[1]:.1f} dB"
+            f" -> 正規化後 {after[0]:.1f} dB（增益 {gain:+.1f} dB）"
+        )
+    else:
+        log(f"[音量] 已正規化音訊（增益 {gain:+.1f} dB）-> {target.name}")
+
+    if mean_volume < -45.0:
+        warn(
+            f"原始音量極低（平均 {mean_volume:.1f} dB），就算放大後仍可能辨識不準。"
+            "建議改用音量較大的原始音檔，或在錄製時離麥克風近一點。"
+        )
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -343,7 +443,7 @@ class Target:
     kind: str  # "url" 或 "file"
     value: str
     display_name: str = ""
-    cleanup_path: Path | None = None
+    cleanup_paths: list[Path] = field(default_factory=list)
     produced: list[Path] = field(default_factory=list)
 
 
@@ -489,33 +589,64 @@ def transcribe_one(
     convert,
     output_dir: Path,
 ) -> list[Path]:
-    audio_path = (
-        download_audio(target.value, config)
-        if target.kind == "url"
-        else Path(target.value)
-    )
+    media_title = ""
+    if target.kind == "url":
+        audio_path, media_title = download_audio(target.value, config)
+    else:
+        audio_path = Path(target.value)
     if not audio_path.is_file():
         raise FileNotFoundError(f"找不到音檔：{audio_path}")
+    source_path = audio_path
 
-    stem = safe_output_stem(Path(target.display_name or audio_path.name).stem)
+    # 網址來源以影片標題命名輸出，本地來源以檔名命名
+    base_name = media_title or target.display_name or audio_path.name
+    stem = safe_output_stem(Path(base_name).stem)
     log(f"[轉錄] {audio_path.name} -> {output_dir / (stem + '.srt')}")
+
+    # 音量過低是 Whisper 產生幻覺最主要的原因，先做常態音量正規化
+    normalized_path: Path | None = None
+    if config.get("normalize_audio", True):
+        ffmpeg = get_ffmpeg_exe()
+        if ffmpeg is None:
+            warn("沒有 ffmpeg，略過音量正規化；音量過低時可能產生幻覺字幕")
+        else:
+            normalized_path = normalize_audio(
+                audio_path, ffmpeg, float(config.get("max_gain_db", 25.0))
+            )
+            if normalized_path != audio_path:
+                audio_path = normalized_path
 
     refine = bool(config.get("refine_long_subtitles", True))
     max_chars = int(config.get("max_subtitle_chars", 20))
     max_seconds = float(config.get("max_subtitle_seconds", 6.0))
     min_chars = int(config.get("min_break_chars", 8))
+    drop_repeats = bool(config.get("drop_repeated_segments", True))
 
-    segments_iter, info = model.transcribe(
-        str(audio_path),
-        language=config.get("language") or None,
-        task=config.get("task", "transcribe"),
-        beam_size=int(config.get("beam_size", 5)),
-        vad_filter=bool(config.get("vad_filter", True)),
-        vad_parameters=config.get("vad_parameters") or None,
-        initial_prompt=config.get("initial_prompt") or None,
-        condition_on_previous_text=bool(config.get("condition_on_previous_text", True)),
-        word_timestamps=refine,
-    )
+    transcribe_options: dict = {
+        "language": config.get("language") or None,
+        "task": config.get("task", "transcribe"),
+        "beam_size": int(config.get("beam_size", 5)),
+        "vad_filter": bool(config.get("vad_filter", True)),
+        "vad_parameters": config.get("vad_parameters") or None,
+        "initial_prompt": config.get("initial_prompt") or None,
+        "condition_on_previous_text": bool(config.get("condition_on_previous_text", False)),
+        "word_timestamps": refine,
+        # 提高無語音判定門檻，讓模型寧可少輸出也不要編造內容
+        "no_speech_threshold": float(config.get("no_speech_threshold", 0.6)),
+        "log_prob_threshold": float(config.get("log_prob_threshold", -1.0)),
+        "compression_ratio_threshold": float(config.get("compression_ratio_threshold", 2.4)),
+        "temperature": config.get("temperature") or [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+    }
+    clip = config.get("_clip_timestamps")
+    if clip:
+        transcribe_options["clip_timestamps"] = clip
+    hotwords = config.get("hotwords") or []
+    if hotwords:
+        # faster-whisper 的 hotwords 參數是字串，不是清單
+        transcribe_options["hotwords"] = ", ".join(str(item) for item in hotwords)
+        log(f"[專有名詞] {hotwords}")
+
+    segments_iter, info = model.transcribe(str(audio_path), **transcribe_options)
 
     duration = float(getattr(info, "duration", 0.0) or 0.0)
     detected = str(getattr(info, "language", "")) or config.get("language", "")
@@ -552,6 +683,9 @@ def transcribe_one(
                 if convert:
                     piece_text = convert(piece_text)
                 piece_text = normalize_cjk_punctuation(piece_text)
+                # 連續完全相同的字幕多半是模型幻覺，直接丟棄
+                if drop_repeats and segments and piece_text == segments[-1].text:
+                    continue
                 item = Segment(
                     index=len(segments) + 1,
                     start=piece_start,
@@ -567,6 +701,14 @@ def transcribe_one(
                 handle.flush()
                 if len(segments) % 25 == 0:
                     log(f"[轉錄] 已輸出 {len(segments)} 段（{item.end:.0f} 秒）")
+
+    # 完全沒有語音時不要留下 0 位元組的字幕檔，避免誤以為轉錄成功
+    if not segments:
+        srt_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            "沒有辨識到任何語音。若影片確實有聲音，代表音量過低或幾乎無聲，"
+            "請提高原始音量後再試；已是可聽見音量時可改用較大的模型或調整 config.json。"
+        )
 
     produced = [srt_path]
     formats = config.get("output_formats") or ["srt"]
@@ -586,7 +728,12 @@ def transcribe_one(
         log(f"[完成] {len(segments)} 段，耗時 {elapsed:.1f} 秒")
 
     if target.kind == "url":
-        target.cleanup_path = audio_path
+        # 網址來源的下載檔與正規化暫存檔都要清掉；本地檔只清正規化暫存檔
+        target.cleanup_paths.append(source_path)
+        if normalized_path is not None and normalized_path != source_path:
+            target.cleanup_paths.append(normalized_path)
+    elif normalized_path is not None and normalized_path != source_path:
+        target.cleanup_paths.append(normalized_path)
     return produced
 
 
@@ -614,6 +761,18 @@ def read_targets_interactively() -> list[str]:
     return items
 
 
+def parse_clip(raw: str) -> list[float]:
+    """把 --clip 參數轉成秒數清單。"""
+    parts = [item.strip() for item in raw.split(",") if item.strip()]
+    try:
+        values = [float(item) for item in parts]
+    except ValueError as error:
+        raise ValueError(f"--clip 格式錯誤：{raw}") from error
+    if not values or any(value < 0 for value in values):
+        raise ValueError(f"--clip 必須是非負數字：{raw}")
+    return values
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="YouTube / Bilibili / 本地影音檔 自動產生繁體中文字幕"
@@ -628,6 +787,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--language", help="語言代碼，例如 zh、ja、en")
     parser.add_argument("--format", dest="formats", help="輸出格式，逗號分隔，例如 srt,vtt,txt")
     parser.add_argument("--output-dir", help="輸出資料夾（預設為專案 output）")
+    parser.add_argument(
+        "--clip",
+        help="只轉錄片段，格式為起點,終點（秒），例如 --clip 0,300；也接受單一數字表示起點",
+    )
+    parser.add_argument(
+        "--hotwords", help="專有名詞提示，逗號分隔，例如 --hotwords LABVIEW,YOLOv4"
+    )
     parser.add_argument(
         "--keep-audio", action="store_true", help="保留下載的音檔，不刪除"
     )
@@ -655,6 +821,13 @@ def main() -> int:
     if args.formats:
         config["output_formats"] = [
             item.strip().lower() for item in args.formats.split(",") if item.strip()
+        ]
+    if args.clip:
+        config["_clip_timestamps"] = parse_clip(args.clip)
+        log(f"[範圍] 只轉錄 {config['_clip_timestamps']} 秒區間")
+    if args.hotwords:
+        config["hotwords"] = [
+            item.strip() for item in args.hotwords.split(",") if item.strip()
         ]
 
     if shutil.which("nvidia-smi") is None and config["device"] == "cuda":
@@ -696,17 +869,14 @@ def main() -> int:
             failed.append(f"{target.display_name}: {error}")
             warn(f"處理失敗：{error}")
         finally:
-            # 網址來源的暫存音檔於轉錄後清除，除非使用者要求保留
-            if (
-                not args.keep_audio
-                and target.kind == "url"
-                and target.cleanup_path is not None
-                and is_inside(INPUT_DIR, target.cleanup_path)
-            ):
-                try:
-                    target.cleanup_path.unlink()
-                except OSError as error:
-                    warn(f"暫存音檔刪除失敗：{error}")
+            # 暫存音檔於轉錄後清除，除非使用者要求保留
+            if not args.keep_audio:
+                for cleanup in target.cleanup_paths:
+                    if is_inside(INPUT_DIR, cleanup):
+                        try:
+                            cleanup.unlink()
+                        except OSError as error:
+                            warn(f"暫存音檔刪除失敗：{error}")
 
     log("===== 結果 =====")
     log(f"成功 {succeeded} / {len(targets)}")
