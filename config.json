@@ -1,0 +1,27 @@
+{
+  "model": "large-v3",
+  "device": "cuda",
+  "compute_type": "auto",
+  "language": "zh",
+  "task": "transcribe",
+  "beam_size": 5,
+  "vad_filter": true,
+  "vad_parameters": {
+    "min_silence_duration_ms": 500,
+    "speech_pad_ms": 200
+  },
+  "initial_prompt": "以下是台灣華語的對話內容，請使用繁體中文與台灣慣用詞，並加上標點符號。",
+  "condition_on_previous_text": true,
+  "refine_long_subtitles": true,
+  "max_subtitle_chars": 20,
+  "max_subtitle_seconds": 6.0,
+  "min_break_chars": 8,
+  "output_formats": [
+    "srt"
+  ],
+  "traditional_converter": "opencc",
+  "opencc_config": "s2twp",
+  "cookies_from_browser": "",
+  "audio_format_preference": "bestaudio/best",
+  "models_dir": "models"
+}

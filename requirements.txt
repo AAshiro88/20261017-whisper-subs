@@ -1,0 +1,15 @@
+# 主要直接依賴（版本為實際環境解析結果，2026-10-17，Python 3.11.17 / CUDA 12 runtime）
+# 安裝：conda activate whisper-subs 後執行 pip install -r requirements.txt
+# 完整解析版本（含間接依賴）見 requirements.lock.txt
+
+# 語音辨識核心：CTranslate2 加速版 Whisper，免 PyTorch
+faster-whisper==1.2.1
+
+# YouTube / Bilibili 音檔下載（使用 Python API，非命令列）
+yt-dlp==2026.8.19
+
+# 隨專案附帶 ffmpeg.exe，避免污染系統 PATH
+imageio-ffmpeg==0.6.0
+
+# 簡體轉繁體（s2twp，含台灣用語）
+opencc-python-reimplemented==0.1.7

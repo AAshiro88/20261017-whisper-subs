@@ -1,0 +1,28 @@
+# 模型快取：large-v3 約 2.9GB，會在需要時自動重新下載，不進版控
+models/
+
+# 舊版控備份（清除 3GB 模型前的 .git 快照）
+.git.bak/
+
+# 執行時的暫存音檔（下載後會自動刪除）與字幕產出
+input/
+output/
+
+# Python 快取
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 工具產生的暫存檔與記錄
+.locks/
+*.log
+*.tmp
+
+# 編輯器與作業系統
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
