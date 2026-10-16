@@ -1,5 +1,7 @@
 @echo off
-REM Drop one or more YouTube / Bilibili URLs onto this file to create subtitles.
+REM YouTube / Bilibili subtitles.
+REM Usage A: double-click this file, then paste one URL per line (press Enter to finish).
+REM Usage B: drag one or more URLs from the browser onto this file.
 setlocal EnableExtensions
 chcp 65001 >nul
 set "PYTHONIOENCODING=utf-8"
@@ -15,14 +17,18 @@ if not exist "%PYEXE%" (
 )
 
 if "%~1"=="" (
-  echo [ERROR] No URL given.
-  echo         Drag a YouTube or Bilibili link onto this file.
-  goto :fail
+  echo ============================================
+  echo  Paste a YouTube or Bilibili URL below.
+  echo  One URL per line, press Enter on an empty line to start.
+  echo  Output folder: %PROJECT_DIR%output
+  echo ============================================
+  echo.
+) else (
+  echo Source   : URL ^(from drag and drop^)
+  echo Output   : %PROJECT_DIR%output
+  echo.
 )
 
-echo Source   : URL
-echo Output   : %PROJECT_DIR%output
-echo.
 "%PYEXE%" "%PROJECT_DIR%transcribe.py" %*
 set "EXITCODE=%ERRORLEVEL%"
 goto :done

@@ -1,5 +1,8 @@
 @echo off
-REM Drop one or more local video / audio files onto this file to create subtitles.
+REM Local video / audio subtitles.
+REM Usage A: double-click this file, then paste one file or folder path per line
+REM          (press Enter on an empty line to start).
+REM Usage B: drag one or more local files onto this file.
 setlocal EnableExtensions
 chcp 65001 >nul
 set "PYTHONIOENCODING=utf-8"
@@ -15,14 +18,18 @@ if not exist "%PYEXE%" (
 )
 
 if "%~1"=="" (
-  echo [ERROR] No file given.
-  echo         Drag a video or audio file onto this file.
-  goto :fail
+  echo ============================================
+  echo  Paste a video or audio file path below.
+  echo  One path per line, press Enter on an empty line to start.
+  echo  Output folder: %PROJECT_DIR%output
+  echo ============================================
+  echo.
+) else (
+  echo Source   : local file ^(from drag and drop^)
+  echo Output   : %PROJECT_DIR%output
+  echo.
 )
 
-echo Source   : local file
-echo Output   : %PROJECT_DIR%output
-echo.
 "%PYEXE%" "%PROJECT_DIR%transcribe.py" %*
 set "EXITCODE=%ERRORLEVEL%"
 goto :done

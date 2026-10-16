@@ -6,16 +6,36 @@ YouTube / Bilibili 網址或本地影音檔，拖放即產生繁體中文 `.srt`
 
 ## 快速開始
 
-環境已於本機建立完成，可直接使用：
+環境已於本機建立完成，可直接使用。
+
+### 用法一：雙擊後貼網址（最常用）
+
+1. 雙擊 `run_url.bat`
+2. 出現 `>` 提示符後，從瀏覽器複製網址（Ctrl+C）貼上，按 Enter
+3. 想一次處理多支影片就繼續貼，最後**按一次空白鍵的 Enter** 就會開始
+4. 字幕寫在 `output\`
+
+本機音檔換成雙擊 `run_file.bat`，貼上檔案路徑即可；雙擊 `run_folder.bat` 則會處理 `input\` 資料夾內的所有媒體檔。
+
+### 用法二：拖放
+
+從瀏覽器把網址**直接拖到** `run_url.bat` 圖示上，或把影片拖到 `run_file.bat` 上，可以一次拖多個。
+
+### 用法三：命令列
+
+```bat
+run_url.bat "https://www.youtube.com/watch?v=xxxxxxxxxxx"
+run_file.bat "D:\影片\教學.mp4" --format srt,vtt,txt
+```
+
+### 檔案用途
 
 | 檔案 | 用途 |
 |---|---|
 | `setup_env.bat` | 建立 conda 環境與安裝套件（**只需執行一次**，已執行過） |
-| `run_url.bat` | 拖放 YouTube / Bilibili **網址** |
-| `run_file.bat` | 拖放本地**影片 / 音檔**（可一次拖多個） |
-| `run_folder.bat` | 拖放**資料夾**批次處理；不帶參數執行則處理 `input\` 內所有媒體檔 |
-
-字幕一律寫入 `output\`，檔名與來源同名（`.srt`）。
+| `run_url.bat` | YouTube / Bilibili 網址（雙擊貼上或拖放） |
+| `run_file.bat` | 本地影片 / 音檔（雙擊貼上路徑或拖放） |
+| `run_folder.bat` | 資料夾批次；雙擊時處理 `input\`，也可拖放資料夾 |
 
 其他格式或參數請直接用命令列（範例見下方「進階用法」）。
 

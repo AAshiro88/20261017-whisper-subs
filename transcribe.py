@@ -593,11 +593,32 @@ def transcribe_one(
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
+def read_targets_interactively() -> list[str]:
+    """沒有帶參數時，讓使用者直接貼上網址或檔案路徑。"""
+    log("請貼上 YouTube / Bilibili 網址，或本地影音檔路徑。")
+    log("可連續貼多行，每行一個；直接按 Enter 結束。")
+    log("-" * 50)
+
+    items: list[str] = []
+    while True:
+        try:
+            line = input("> ").strip()
+        except EOFError:
+            break
+        except KeyboardInterrupt:
+            log("")
+            break
+        if not line:
+            break
+        items.append(line.strip('"').strip("'"))
+    return items
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="YouTube / Bilibili / 本地影音檔 自動產生繁體中文字幕"
     )
-    parser.add_argument("inputs", nargs="+", help="網址、影音檔或資料夾")
+    parser.add_argument("inputs", nargs="*", help="網址、影音檔或資料夾（留空則互動式輸入）")
     parser.add_argument("--model", help="覆寫模型名稱或本機模型目錄")
     parser.add_argument("--device", choices=["cuda", "cpu"], help="覆寫執行裝置")
     parser.add_argument(
@@ -647,7 +668,11 @@ def main() -> int:
     output_dir = Path(args.output_dir).expanduser() if args.output_dir else OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    targets = collect_targets(args.inputs)
+    inputs = list(args.inputs)
+    if not inputs:
+        inputs = read_targets_interactively()
+
+    targets = collect_targets(inputs)
     if not targets:
         warn("沒有可處理的檔案")
         return 1
