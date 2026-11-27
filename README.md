@@ -13,7 +13,7 @@ YouTube / Bilibili 網址或本地影音檔，拖放或選檔即產生繁體中�
 1. 雙擊 `run_summary.bat`
 2. 在跳出的 Windows 檔案選擇視窗中，選取**單個或多個**影片／音檔（按 `Ctrl` 或 `Shift` 可多選）
 3. 程式會先以本機 Whisper 轉錄（產出 `.srt` 與 `.txt`），再依 `config.json` 的 `summary` 設定呼叫本機或遠端 Ollama 產出 `_重點節錄.md`
-4. 所有結果寫在 `output\`
+4. 所有結果預設輸出在**各輸入檔案同資料夾下的同名子資料夾**（例如 `影片A.mp4` 輸出至 `影片A\`；若需統一集中到其他資料夾，可用 `--output-dir` 覆寫）
 
 也可直接將單個或多個影片／資料夾**拖放到** `run_summary.bat` 圖示上執行。
 

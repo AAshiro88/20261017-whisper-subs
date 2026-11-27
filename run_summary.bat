@@ -20,7 +20,7 @@ if not exist "%PYEXE%" (
 echo ============================================
 echo  Whisper Transcribe + Ollama Summary
 echo  Config : %PROJECT_DIR%config.json
-echo  Output : %PROJECT_DIR%output
+echo  Output : ^<input_dir^>\^<input_filename^>\
 echo ============================================
 echo.
 

@@ -206,7 +206,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="覆寫 config.json 的 summary.provider",
     )
     parser.add_argument("--summary-model", help="覆寫 config.json 的 summary.model")
-    parser.add_argument("--output-dir", help="覆寫輸出資料夾（預設為專案 output）")
+    parser.add_argument(
+        "--output-dir",
+        help="覆寫輸出資料夾（預設在各輸入檔案同資料夾下建立同名子資料夾）",
+    )
     parser.add_argument("--no-summary", action="store_true", help="只做轉錄，略過 Ollama 節錄")
     return parser
 
@@ -270,13 +273,16 @@ def main() -> int:
         transcribe.warn("沒有可處理的影音檔案")
         return 1
 
-    output_dir = (
-        Path(args.output_dir).expanduser().resolve()
-        if args.output_dir
-        else transcribe.OUTPUT_DIR
+    custom_output_dir = (
+        Path(args.output_dir).expanduser().resolve() if args.output_dir else None
     )
-    output_dir.mkdir(parents=True, exist_ok=True)
-    transcribe.log(f"[任務] 共 {len(targets)} 個項目，輸出目錄：{output_dir}")
+    if custom_output_dir is not None:
+        custom_output_dir.mkdir(parents=True, exist_ok=True)
+        transcribe.log(f"[任務] 共 {len(targets)} 個項目，輸出目錄：{custom_output_dir}")
+    else:
+        transcribe.log(
+            f"[任務] 共 {len(targets)} 個項目，輸出目錄：各輸入檔案同資料夾下的同名子資料夾"
+        )
 
     whisper_model_name = transcribe.safe_model_path(str(config["model"]))
     model, device, compute_type = transcribe.load_model(config, whisper_model_name)
@@ -293,8 +299,20 @@ def main() -> int:
     for index, target in enumerate(targets, start=1):
         transcribe.log(f"===== [{index}/{len(targets)}] {target.display_name} =====")
         try:
+            if custom_output_dir is not None:
+                target_output_dir = custom_output_dir
+            elif target.kind == "file":
+                src_path = Path(target.value).resolve()
+                folder_name = transcribe.safe_output_stem(src_path.stem)
+                target_output_dir = src_path.parent / folder_name
+                if not transcribe.is_inside(src_path.parent, target_output_dir):
+                    raise ValueError(f"輸出子資料夾超出允許範圍：{target_output_dir}")
+            else:
+                target_output_dir = transcribe.OUTPUT_DIR
+            target_output_dir.mkdir(parents=True, exist_ok=True)
+
             produced = transcribe.transcribe_one(
-                target, model, config, convert, output_dir
+                target, model, config, convert, target_output_dir
             )
             produced_all.extend(produced)
 
@@ -303,7 +321,7 @@ def main() -> int:
                 if not txt_files:
                     raise RuntimeError("找不到轉錄產出的 .txt 檔案，無法進行節錄")
                 md_path = summarize_transcript(
-                    txt_files[0], ollama_host, summary_cfg, output_dir
+                    txt_files[0], ollama_host, summary_cfg, target_output_dir
                 )
                 produced_all.append(md_path)
 
