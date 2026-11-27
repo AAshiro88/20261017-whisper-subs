@@ -203,9 +203,9 @@ def load_model(config: dict, model_name: str):
     from faster_whisper import WhisperModel
 
     device = config["device"]
-    compute_type = resolve_compute_type(
-        config["compute_type"], device, query_gpu_memory_mb()[1]
-    )
+    gpu_memory = query_gpu_memory_mb() if device == "cuda" else None
+    free_mb = gpu_memory[1] if gpu_memory is not None else None
+    compute_type = resolve_compute_type(config["compute_type"], device, free_mb)
     download_root = MODELS_DIR / "faster-whisper"
     download_root.mkdir(parents=True, exist_ok=True)
 

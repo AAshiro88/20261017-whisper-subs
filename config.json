@@ -1,5 +1,5 @@
 {
-  "model": "large-v3",
+  "model": "large-v3-turbo",
   "device": "cuda",
   "compute_type": "auto",
   "language": "zh",
@@ -38,5 +38,16 @@
   "opencc_config": "s2twp",
   "cookies_from_browser": "",
   "audio_format_preference": "bestaudio/best",
-  "models_dir": "models"
+  "models_dir": "models",
+  "summary": {
+    "enabled": true,
+    "provider": "remote_ollama",
+    "local_ollama_host": "http://127.0.0.1:11434",
+    "remote_ollama_host": "",
+    "model": "gemma4:12b",
+    "num_ctx": 16384,
+    "temperature": 0.2,
+    "timeout_seconds": 300,
+    "output_suffix": "_重點節錄.md"
+  }
 }
