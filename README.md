@@ -1,14 +1,23 @@
-# Whisper 自動繁體中文字幕工具
+# Whisper 自動繁體中文字幕與重點節錄工具
 
-YouTube / Bilibili 網址或本地影音檔，拖放即產生繁體中文 `.srt` 字幕。
+YouTube / Bilibili 網址或本地影音檔，拖放或選檔即產生繁體中文 `.srt` 字幕與 `.txt` 逐字文字，並可搭配本機或遠端 Ollama 自動產出 Markdown 重點節錄。
 輸出會做兩項後處理：簡體轉繁體（OpenCC `s2twp`）、中文字旁的標點轉為全形，並依字詞時間戳把過長段落切成好閱讀的短句。
-本機實測環境：NVIDIA GeForce RTX 3050 8GB、Windows 11、Python 3.11.17（conda 環境 `whisper-subs`）。
+目前本機環境：Windows 11、Intel Core Ultra 5 228V（CPU `int8` 模式）、Python 3.11.18（conda 環境 `whisper-subs`）。
 
 ## 快速開始
 
 環境已於本機建立完成，可直接使用。
 
-### 用法一：雙擊後貼網址（最常用）
+### 用法一：視窗選檔並自動轉錄 + Ollama 重點節錄（推薦）
+
+1. 雙擊 `run_summary.bat`
+2. 在跳出的 Windows 檔案選擇視窗中，選取**單個或多個**影片／音檔（按 `Ctrl` 或 `Shift` 可多選）
+3. 程式會先以本機 Whisper 轉錄（產出 `.srt` 與 `.txt`），再依 `config.json` 的 `summary` 設定呼叫本機或遠端 Ollama 產出 `_重點節錄.md`
+4. 所有結果寫在 `output\`
+
+也可直接將單個或多個影片／資料夾**拖放到** `run_summary.bat` 圖示上執行。
+
+### 用法二：雙擊後貼網址（僅產出字幕）
 
 1. 雙擊 `run_url.bat`
 2. 出現 `>` 提示符後，從瀏覽器複製網址（Ctrl+C）貼上，按 Enter
@@ -17,13 +26,14 @@ YouTube / Bilibili 網址或本地影音檔，拖放即產生繁體中文 `.srt`
 
 本機音檔換成雙擊 `run_file.bat`，貼上檔案路徑即可；雙擊 `run_folder.bat` 則會處理 `input\` 資料夾內的所有媒體檔。
 
-### 用法二：拖放
+### 用法三：拖放
 
-從瀏覽器把網址**直接拖到** `run_url.bat` 圖示上，或把影片拖到 `run_file.bat` 上，可以一次拖多個。
+從瀏覽器把網址**直接拖到** `run_url.bat` 圖示上，或把影片拖到 `run_file.bat` / `run_summary.bat` 上，可以一次拖多個。
 
-### 用法三：命令列
+### 用法四：命令列
 
 ```bat
+run_summary.bat "D:\影片\教學1.mp4" "D:\影片\教學2.mp4"
 run_url.bat "https://www.youtube.com/watch?v=xxxxxxxxxxx"
 run_file.bat "D:\影片\教學.mp4" --format srt,vtt,txt
 ```
@@ -33,6 +43,7 @@ run_file.bat "D:\影片\教學.mp4" --format srt,vtt,txt
 | 檔案 | 用途 |
 |---|---|
 | `setup_env.bat` | 建立 conda 環境與安裝套件（**只需執行一次**，已執行過） |
+| `run_summary.bat` | 視窗選取單個或多個影音檔（或拖放），執行 Whisper 轉錄 + 本機／遠端 Ollama 重點節錄 |
 | `run_url.bat` | YouTube / Bilibili 網址（雙擊貼上或拖放） |
 | `run_file.bat` | 本地影片 / 音檔（雙擊貼上路徑或拖放） |
 | `run_folder.bat` | 資料夾批次；雙擊時處理 `input\`，也可拖放資料夾 |
@@ -44,22 +55,27 @@ run_file.bat "D:\影片\教學.mp4" --format srt,vtt,txt
 ```
 20261017-whisper-subs\
 ├─ README.md
-├─ config.json               模型、精度、語言、字幕長度等設定
+├─ .env                      遠端 Ollama 位址（OLLAMA_HOST=http://<host>:11434）
+├─ config.json               Whisper 模型、精度、語言與 Ollama 節錄設定
 ├─ requirements.txt          主要直接依賴（含版本）
 ├─ requirements.lock.txt     完整解析版本（pip freeze）
-├─ transcribe.py             核心 CLI
+├─ transcribe.py             語音轉錄核心 CLI
+├─ summarize_videos.py       選檔轉錄 + 本機／遠端 Ollama 重點節錄 CLI
 ├─ setup_env.bat
+├─ run_summary.bat
 ├─ run_url.bat / run_file.bat / run_folder.bat
 ├─ input\                    yt-dlp 下載的暫存音檔（轉錄後自動刪除）
-├─ output\                   產出的 .srt / .vtt / .txt
-└─ models\                   faster-whisper 模型快取（首次執行自動下載 large-v3 約 3GB）
+├─ output\                   產出的 .srt / .vtt / .txt / _重點節錄.md
+└─ models\                   faster-whisper 模型快取（首次執行自動下載）
 ```
 
 ## 設定檔 `config.json`
 
+### Whisper 語音轉錄設定
+
 | 欄位 | 預設值 | 說明 |
 |---|---|---|
-| `model` | `large-v3` | 品質優先。改成 `large-v3-turbo` 速度約快 2–4 倍、記憶體約減半 |
+| `model` | `large-v3-turbo` | 速度與品質兼顧（CPU 實測約 3 倍速）；追求最高品質且有 NVIDIA 顯卡可改為 `large-v3` |
 | `device` | `cuda` | 無顯示卡時自動降為 `cpu` |
 | `compute_type` | `auto` | 依可用顯示記憶體自動選 `float16` / `int8_float16` / `int8` |
 | `language` | `zh` | 語言代碼。`zh` 繁中、`ja` 日本語、`en` 英文；空字串為自動判斷 |
@@ -79,9 +95,29 @@ run_file.bat "D:\影片\教學.mp4" --format srt,vtt,txt
 | `opencc_config` | `s2twp` | 簡轉繁並套用台灣用語；想保留原文可設 `traditional_converter` 為 `none` |
 | `cookies_from_browser` | 空字串 | Bilibili 高畫質或需登入的內容可填 `edge` 或 `chrome` |
 
+### Ollama 重點節錄設定（`summary` 區塊）
+
+| 欄位 | 預設值 | 說明 |
+|---|---|---|
+| `summary.enabled` | `true` | 是否啟用 Ollama 重點節錄；設為 `false` 時 `run_summary.bat` 只做語音轉錄 |
+| `summary.provider` | `remote_ollama` | 切換 Ollama 來源：`remote_ollama`（遠端）、`local_ollama`（本機）或 `none`（關閉） |
+| `summary.local_ollama_host` | `http://127.0.0.1:11434` | `provider` 為 `local_ollama` 時使用的本機位址 |
+| `summary.remote_ollama_host` | 空字串 | `provider` 為 `remote_ollama` 時使用的遠端位址；留空時自動讀取 `.env` 的 `OLLAMA_HOST` |
+| `summary.model` | `gemma4:12b` | 節錄用的 Ollama 模型名稱（可改為該主機已安裝的模型，如 `gemma4:e2b`、`qwen3.5:4b`） |
+| `summary.num_ctx` | `16384` | 模型 Context 長度上限 |
+| `summary.temperature` | `0.2` | 生成溫度，數值越低越忠實於逐字稿 |
+| `summary.timeout_seconds` | `300` | 單次請求逾時秒數 |
+| `summary.output_suffix` | `_重點節錄.md` | 節錄檔名後綴 |
+
 ## 進階用法
 
 ```bat
+:: 臨時改用本機 Ollama 與指定模型節錄（不改 config.json）
+run_summary.bat 影片.mp4 --provider local_ollama --summary-model qwen3.5:4b
+
+:: 只做轉錄不節錄
+run_summary.bat 影片.mp4 --no-summary
+
 :: 輸出三種格式
 run_file.bat 影片.mp4 --format srt,vtt,txt
 
@@ -92,7 +128,7 @@ run_file.bat 影片.mp4 --model large-v3-turbo
 run_file.bat 影片.mp4 --output-dir D:\字幕
 
 :: 保留下載的音檔（不自動刪除）
-run_url.bat https://www.youtube.com/watch?v=xxxx
+run_url.bat https://www.youtube.com/watch?v=xxxx --keep-audio
 
 :: 只轉錄前 5 分鐘（先確認音訊品質，推薦用這個試跑）
 run_url.bat 影片網址 --clip 0,300
@@ -101,7 +137,8 @@ run_url.bat 影片網址 --clip 0,300
 run_url.bat 影片網址 --hotwords LABVIEW,YOLOv4,物件偵測
 
 :: 完全繞過 bat，直接呼叫
-"C:\Users\ayore\.conda\envs\whisper-subs\python.exe" transcribe.py 影片.mp4 --format srt
+"%USERPROFILE%\.conda\envs\whisper-subs\python.exe" transcribe.py 影片.mp4 --format srt
+"%USERPROFILE%\.conda\envs\whisper-subs\python.exe" summarize_videos.py 影片.mp4
 ```
 
 ## 音量過低怎麼辦（重要）
@@ -142,13 +179,18 @@ run_url.bat 影片網址 --hotwords LABVIEW,YOLOv4,物件偵測
 執行前建議關閉遊戲等佔用顯卡的程式，8GB 顯卡在 `large-v3` 下已接近上限。
 
 另一組實測：38 分鐘 YouTube 教學影片（原始平均音量 -51.6 dB，需音量正規化），
-`large-v3` 完整轉錄耗時 24.6 秒（約 93 倍速），產出 127 段字幕。
+`large-v3`（RTX 3050）完整轉錄耗時 24.6 秒（約 93 倍速），產出 127 段字幕。
+
+本機 CPU 實測（Intel Core Ultra 5 228V、`large-v3-turbo` + `int8`）：
+- 15 分 38 秒中文課程影片：耗時 268.6 秒（約 3.5 倍速），產出 409 段。
+- 11 分 10 秒中文課程影片：耗時 215.3 秒（約 3.1 倍速），產出 298 段。
 
 ## 已知限制
 
 - **極小音量**：見上方「音量過低怎麼辦」。原始音量低於 -45 dB 時，即使自動放大仍會有錯字，只能換來源。
 - **YouTube 反爬蟲**：YouTube 會調整驗證機制，偶爾會出現下載失敗。程式已自動啟用 `node` 作為 JavaScript 執行環境；若仍失敗，可更新 `yt-dlp`（`pip install -U yt-dlp`）或改用 Bilibili。
 - **只有 ffmpeg、沒有 ffprobe**：`imageio-ffmpeg` 只附帶 `ffmpeg.exe`。本工具只下載純音軌（`bestaudio`），正常情況不需要 ffprobe；若某些來源需要合併音視訊才會失敗。
+- **非 NVIDIA 顯示卡**：`faster-whisper` 底層 `CTranslate2` 僅支援 NVIDIA CUDA 與 CPU，不支援 Intel Arc GPU 或 Intel AI Boost NPU；無 NVIDIA 顯卡時會自動切換至 CPU（`int8`）。
 - **繁簡與台灣用語轉換**：模型輸出多為簡體，`s2twp` 會轉成繁體並套用台灣慣用詞，但偶爾會有不合語境的替換，正式使用前建議抽查。
 - **字幕分段**：切分依賴模型給的字詞時間戳，無標點又講得很快的段落，切點可能落在字與字之間。
 - **非逐字稿**：本工具輸出的是「以句為單位」的字幕，不是逐字對齊稿；短句、疊字、語速變化大的內容時間軸可能有 0.1–0.3 秒誤差。
@@ -158,12 +200,13 @@ run_url.bat 影片網址 --hotwords LABVIEW,YOLOv4,物件偵測
 
 | 項目 | 版本 |
 |---|---|
-| conda 環境 | `whisper-subs`（Python 3.11.17） |
+| conda 環境 | `whisper-subs`（Python 3.11.18） |
 | faster-whisper | 1.2.1 |
-| ctranslate2 | 4.8.3 |
+| ctranslate2 | 4.9.1 |
 | yt-dlp | 2026.8.19 |
 | imageio-ffmpeg | 0.6.0 |
 | opencc-python-reimplemented | 0.1.7 |
-| 顯卡驅動 | 617.14（CUDA 12 runtime 由 ctranslate2 內附，**不需安裝 CUDA Toolkit**） |
+| Node.js | v24.16.0（供 `yt-dlp` 執行 YouTube JS 驗證） |
+| GPU / CUDA | 有 NVIDIA 顯卡時由 `ctranslate2` 內附 CUDA 12 runtime（**不需另裝 CUDA Toolkit**）；無 NVIDIA 顯卡時自動切換 CPU `int8` |
 
 重新建立環境：刪除 `models\` 快取後再次執行 `setup_env.bat` 即可。
